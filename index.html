@@ -1,0 +1,378 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>카카오맵 문화 시설 지도 서비스</title>
+    <!-- Tailwind CSS CDN (깔끔한 UI 스타일링용) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome 아이콘 CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* Pretendard 폰트 적용 */
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        * {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+        }
+
+        /* 커스텀 스크롤바 스타일 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* 인포윈도우 커스텀 스타일 */
+        .custom-infowindow {
+            padding: 12px 16px;
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+            font-size: 13px;
+            min-width: 220px;
+            max-width: 280px;
+        }
+
+        /* Active Tab indicator */
+        .tab-btn.active {
+            background-color: #ffffff;
+            color: #0f172a;
+            font-weight: 700;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+    </style>
+
+    <!-- 
+      카카오맵 JavaScript SDK 불러오기 
+      - appkey: 전달받은 앱키 적용
+      - libraries=services: 장소 검색(Places) 라이브러리 포함
+      - autoload=false: 지도가 완전히 로드된 후 안전하게 실행하기 위해 자동 로드를 끕니다.
+    -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=0bce71f318cc62bbe2897adf4bda0b34&libraries=services&autoload=false"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen overflow-hidden">
+
+    <!-- 메인 컨테이너: 화면 전체 2분할 레이아웃 -->
+    <div class="flex flex-col md:flex-row h-full w-full">
+        
+        <!-- [왼쪽 영역] 탭 + 검색창 & 결과 리스트 -->
+        <div class="w-full md:w-96 lg:w-[420px] bg-white h-[45%] md:h-full flex flex-col z-10 shadow-lg border-r border-slate-200">
+            
+            <!-- 상단 헤더 및 카테고리 탭 -->
+            <div class="p-4 bg-amber-400 border-b border-amber-500/20">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-icons text-xl text-slate-900"></i>
+                        <h1 class="font-bold text-lg text-slate-900">문화 시설 지도</h1>
+                    </div>
+                    <!-- 현재 위치 이동 버튼 -->
+                    <button 
+                        id="myLocationBtn" 
+                        class="flex items-center gap-1 text-xs text-amber-950 font-semibold bg-amber-300 hover:bg-amber-200 px-2.5 py-1.5 rounded-lg transition shadow-sm"
+                        title="현재 위치로 지도 이동"
+                    >
+                        <i class="fa-solid fa-crosshairs"></i> 내 위치
+                    </button>
+                </div>
+
+                <!-- 문화 시설 카테고리 탭 버튼 4개 -->
+                <div class="grid grid-cols-4 gap-1 p-1 bg-amber-500/20 rounded-xl text-xs text-amber-900" id="tabContainer">
+                    <button class="tab-btn active py-2 rounded-lg text-center transition flex flex-col items-center gap-1" data-category="art">
+                        <span class="text-xs">🎨</span>
+                        <span>미술관</span>
+                    </button>
+                    <button class="tab-btn py-2 rounded-lg text-center transition flex flex-col items-center gap-1" data-category="museum">
+                        <span class="text-xs">🏛️</span>
+                        <span>박물관</span>
+                    </button>
+                    <button class="tab-btn py-2 rounded-lg text-center transition flex flex-col items-center gap-1" data-category="exhibition">
+                        <span class="text-xs">🖼️</span>
+                        <span>전시회장</span>
+                    </button>
+                    <button class="tab-btn py-2 rounded-lg text-center transition flex flex-col items-center gap-1" data-category="etc">
+                        <span class="text-xs">✨</span>
+                        <span>기타</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 검색 및 위치 안내 요약 -->
+            <div class="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600">
+                <span id="resultCountText" class="font-medium text-slate-700">현재 보이는 지도 화면 검색 중...</span>
+                <span id="categoryNotice" class="text-[11px] px-2 py-0.5 bg-pink-100 text-pink-700 font-semibold rounded-full">미술관 검색</span>
+            </div>
+
+            <!-- 검색 결과 리스트 영역 -->
+            <div class="flex-1 overflow-y-auto p-3" id="resultListContainer">
+                <!-- 결과 목록이 동적으로 추가됩니다 -->
+                <div id="initialNotice" class="text-center py-10 text-slate-400">
+                    <i class="fa-solid fa-spinner animate-spin text-2xl mb-3 text-amber-500"></i>
+                    <p class="text-sm">주변 문화 시설을 탐색하고 있습니다...</p>
+                </div>
+            </div>
+
+            <!-- 푸터 안내 문구 -->
+            <div class="p-2 border-t border-slate-100 text-center text-[11px] text-slate-400">
+                Kakao Maps API 기반 심미적 감성 문화 시설 안내 서비스
+            </div>
+        </div>
+
+        <!-- [오른쪽 영역] 지도 지점 -->
+        <div class="flex-1 h-[55%] md:h-full relative">
+            <!-- 카카오 지도가 그려질 디브(Div) -->
+            <div id="map" class="w-full h-full"></div>
+            
+            <!-- 로딩 상태 표시 레이어 -->
+            <div id="loadingSpinner" class="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-20 transition-opacity duration-300">
+                <div class="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-3"></div>
+                <p class="text-xs font-semibold text-slate-600" id="loadingText">지도를 로드하고 위치 정보를 불러오는 중입니다...</p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JavaScript 로직 -->
+    <script>
+        // 전역 변수 선언
+        let map = null;                    // 카카오 지도 객체
+        let placesService = null;          // 카카오 장소 검색 서비스 객체
+        let infoWindow = null;             // 장소 정보 표시창(InfoWindow)
+        let searchMarkers = [];            // 현재 표시 중인 검색 결과 마커 배열
+        let userLocationMarker = null;     // 사용자 현재 위치 마커
+        let activeCategory = 'art';        // 현재 선택된 탭 카테고리 (art, museum, exhibition, etc)
+
+        // 사용자 현재 위치 저장 (기본값: 서울시청)
+        let currentPosition = {
+            lat: 37.566826,
+            lng: 126.978656
+        };
+
+        // DOM 요소 참조
+        const resultListContainer = document.getElementById('resultListContainer');
+        const resultCountText = document.getElementById('resultCountText');
+        const categoryNotice = document.getElementById('categoryNotice');
+        const myLocationBtn = document.getElementById('myLocationBtn');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const loadingText = document.getElementById('loadingText');
+        const tabContainer = document.getElementById('tabContainer');
+
+        // 카테고리별 마커 색상 정의 (요구사항)
+        // 탭 1 (미술관): 분홍색, 탭 2 (박물관): 파란색, 탭 3 (전시회장): 노란색, 탭 4 (기타): 보라색
+        const categoryColors = {
+            art: { color: '#ec4899', name: '미술관', badge: 'bg-pink-100 text-pink-700' },
+            museum: { color: '#3b82f6', name: '박물관', badge: 'bg-blue-100 text-blue-700' },
+            exhibition: { color: '#eab308', name: '전시회장', badge: 'bg-yellow-100 text-yellow-800' },
+            etc: { color: '#a855f7', name: '기타 문화시설', badge: 'bg-purple-100 text-purple-700' }
+        };
+
+        /**
+         * 1. Kakao Maps SDK 완전히 로드 후 초기화
+         */
+        kakao.maps.load(function () {
+            const mapContainer = document.getElementById('map');
+            const mapOptions = {
+                center: new kakao.maps.LatLng(currentPosition.lat, currentPosition.lng),
+                level: 5 // 요구사항: 지도 확대 레벨 5
+            };
+
+            // 지도 생성
+            map = new kakao.maps.Map(mapContainer, mapOptions);
+
+            // 장소 검색 서비스 및 인포윈도우 객체 생성
+            placesService = new kakao.maps.services.Places();
+            infoWindow = new kakao.maps.InfoWindow({ zIndex: 10 });
+
+            // 사용자 위치 권한 요청 및 지도 중심 설정
+            getUserGeolocation();
+
+            // 탭 버튼 클릭 이벤트 등록
+            tabContainer.addEventListener('click', handleTabClick);
+
+            // 내 위치 이동 버튼 등록
+            myLocationBtn.addEventListener('click', moveToUserLocation);
+        });
+
+        /**
+         * 2. 브라우저 GeoLocation으로 위치 정보 가져오기 및 내 위치 마커 표시
+         */
+        function getUserGeolocation() {
+            if (navigator.geolocation) {
+                loadingText.innerText = "사용자의 현재 위치를 가져오는 중입니다...";
+                
+                navigator.geolocation.getCurrentPosition(
+                    function (position) {
+                        currentPosition.lat = position.coords.latitude;
+                        currentPosition.lng = position.coords.longitude;
+
+                        const userLatLng = new kakao.maps.LatLng(currentPosition.lat, currentPosition.lng);
+
+                        // 지도 중심을 사용자 현재 위치로 이동
+                        map.setCenter(userLatLng);
+
+                        // 내 현재 위치 마커 표시
+                        displayUserLocationMarker(userLatLng);
+
+                        hideLoading();
+                        // 초기 지도 범위 내에서 기본 '미술관' 탭 검색 수행
+                        searchCategoryPlaces();
+                    },
+                    function (error) {
+                        console.warn('Geolocation 불러오기 실패:', error.message);
+                        alert('현재 위치 권한을 승인받지 못해 기본 위치로 이동합니다.');
+                        
+                        const defaultLatLng = new kakao.maps.LatLng(currentPosition.lat, currentPosition.lng);
+                        displayUserLocationMarker(defaultLatLng);
+                        hideLoading();
+                        searchCategoryPlaces();
+                    },
+                    { timeout: 10000, enableHighAccuracy: true }
+                );
+            } else {
+                alert('이 브라우저는 위치 서비스를 지원하지 않습니다.');
+                hideLoading();
+                searchCategoryPlaces();
+            }
+        }
+
+        /**
+         * 3. 내 현재 위치 마커 표시 (별 모양 핀)
+         */
+        function displayUserLocationMarker(latLng) {
+            if (userLocationMarker) {
+                userLocationMarker.setMap(null);
+            }
+
+            const imageSrc = 'https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png';
+            const imageSize = new kakao.maps.Size(24, 35);
+            const markerImage = new kakao.maps.MarkerImage(imageSrc, imageSize);
+
+            userLocationMarker = new kakao.maps.Marker({
+                position: latLng,
+                map: map,
+                image: markerImage,
+                title: '내 위치'
+            });
+        }
+
+        /**
+         * 4. 내 위치 버튼 핸들러
+         */
+        function moveToUserLocation() {
+            if (!map) return;
+            const userLatLng = new kakao.maps.LatLng(currentPosition.lat, currentPosition.lng);
+            map.panTo(userLatLng);
+            
+            infoWindow.setContent(`
+                <div class="custom-infowindow text-center">
+                    <strong class="text-slate-900 font-bold">📍 현재 위치</strong>
+                    <p class="text-xs text-slate-500 mt-1">사용자의 현재 위치입니다.</p>
+                </div>
+            `);
+            infoWindow.open(map, userLocationMarker);
+        }
+
+        /**
+         * 5. 탭 클릭 이벤트 처리
+         */
+        function handleTabClick(event) {
+            const targetBtn = event.target.closest('.tab-btn');
+            if (!targetBtn || targetBtn.classList.contains('active')) return;
+
+            // 이전 활성 탭 스타일 제거 및 새로 활성화
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            targetBtn.classList.add('active');
+
+            // 선택된 카테고리 변경
+            activeCategory = targetBtn.dataset.category;
+
+            // 상단 안내 배지 업데이트
+            const catInfo = categoryColors[activeCategory];
+            categoryNotice.className = `text-[11px] px-2 py-0.5 font-semibold rounded-full ${catInfo.badge}`;
+            categoryNotice.innerText = `${catInfo.name} 검색`;
+
+            // 해당 카테고리 검색 재실행 (이전 마커 및 목록 자동 초기화 포함)
+            searchCategoryPlaces();
+        }
+
+        /**
+         * 6. 지도 화면에 보이는 영역(Bounds) 기준으로 장소 검색 수행
+         */
+        function searchCategoryPlaces() {
+            if (!placesService || !map) return;
+
+            // 검색 전 이전 마커 및 인포윈도우 제거
+            clearSearchResults();
+
+            // 현재 지도 영역 Bounds 가져오기
+            const bounds = map.getBounds();
+
+            if (activeCategory === 'art') {
+                // 탭 1: 미술관
+                placesService.keywordSearch('미술관', categorySearchCallback, { bounds: bounds });
+            } else if (activeCategory === 'museum') {
+                // 탭 2: 박물관
+                placesService.keywordSearch('박물관', categorySearchCallback, { bounds: bounds });
+            } else if (activeCategory === 'exhibition') {
+                // 탭 3: 전시회장
+                placesService.keywordSearch('전시회', categorySearchCallback, { bounds: bounds });
+            } else if (activeCategory === 'etc') {
+                // 탭 4: 기타 (갤러리, 아트센터, 공연장 등 심미적 감성 문화시설)
+                // 키워드 '갤러리' 검색 후 추가 확장
+                placesService.keywordSearch('갤러리', function(data, status) {
+                    if (status === kakao.maps.services.Status.OK) {
+                        // 미술관, 박물관 명칭이 포함된 것 제외 필터링
+                        const filteredData = data.filter(place => 
+                            !place.place_name.includes('미술관') && !place.place_name.includes('박물관')
+                        );
+                        categorySearchCallback(filteredData, kakao.maps.services.Status.OK);
+                    } else {
+                        // 결과가 없을 경우 '아트센터'로 재시도
+                        placesService.keywordSearch('아트센터', categorySearchCallback, { bounds: bounds });
+                    }
+                }, { bounds: bounds });
+            }
+        }
+
+        /**
+         * 7. 검색 결과 콜백 처리
+         */
+        function categorySearchCallback(data, status) {
+            if (status === kakao.maps.services.Status.OK) {
+                displaySearchResults(data);
+                resultCountText.innerText = `현재 지도 영역 내 ${data.length}곳 발견`;
+            } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
+                resultListContainer.innerHTML = `
+                    <div class="text-center py-12 text-slate-400">
+                        <i class="fa-solid fa-map-location-dot text-3xl mb-2 text-slate-300"></i>
+                        <p class="text-sm font-medium">현재 보이는 지도 화면 내에<br>${categoryColors[activeCategory].name} 정보가 없습니다.</p>
+                        <p class="text-xs text-slate-400 mt-1">지도를 다른 위치로 이동해보세요.</p>
+                    </div>
+                `;
+                resultCountText.innerText = '검색 결과 없음';
+            } else {
+                resultCountText.innerText = '검색 중 오류 발생';
+            }
+        }
+
+        /**
+         * 8. 검색 결과 마커 및 좌측 리스트 출력
+         */
+        function displaySearchResults(places) {
+            let listHTML = '';
+
+            places.forEach((place, index) => {
+                const placeLatLng = new kakao.maps.LatLng(place.y, place.x);
+
+                // 카테고리 색상 마커 생성 및 지도의 표시
+                const marker = createColoredMarker(placeLatLng, activeCategory, index);
